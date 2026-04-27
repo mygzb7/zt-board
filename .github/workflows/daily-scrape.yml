@@ -1,0 +1,36 @@
+name: Daily Stock Data Scraper
+
+on:
+  schedule:
+    - cron: '35 7 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install akshare pandas
+
+      - name: Run scraper
+        run: python python_scripts/akshare_zt.py
+        env:
+          TZ: Asia/Shanghai
+
+      - name: Build
+        run: npm ci && npm run build
+        env:
+          TZ: Asia/Shanghai
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
