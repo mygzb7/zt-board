@@ -1,0 +1,34 @@
+name: Daily Stock Data Scraper
+
+on:
+  schedule:
+    # A股收盘后每天 15:35 执行
+    - cron: '35 7 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install akshare pandas
+
+      - name: Run scraper
+        run: python python_scripts/akshare_zt.py
+        env:
+          TZ: Asia/Shanghai
+
+      - name: Commit and push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/zt_pool.json
+          git diff --quiet && echo "No changes" || git commit -m "📊 更新涨停数据 $(date '+%Y-%m-%d %H:%M')"
+          git push
