@@ -356,3 +356,78 @@ export const DEFAULT_ZT_POOL: ZtStock[] = [
     changeRate: -0.48,
   },
 ];
+// ============ Utility Functions ============
+
+export function filterZtPool(pool: ZtStock[]): ZtStock[] {
+  return pool.filter(s => {
+    if (s.name.includes('ST') || s.name.includes('*ST')) return false;
+    if (s.code.startsWith('300') || s.code.startsWith('688')) return false;
+    return true;
+  });
+}
+
+export function getSealTimeLevel(sealTime: string): string {
+  if (sealTime <= '09:30') return '🔥一字';
+  if (sealTime <= '10:00') return '⚡早板';
+  if (sealTime <= '11:30') return '📌午前';
+  return '🔴午后';
+}
+
+export function getMarketCapLevel(cap: number): 'optimal' | 'caution' | 'risky' {
+  if (cap <= 100) return 'optimal';
+  if (cap <= 300) return 'caution';
+  return 'risky';
+}
+
+export function getSealTimeColor(sealTime: string): string {
+  if (sealTime <= '09:30') return 'text-green-400';
+  if (sealTime <= '10:00') return 'text-lime-400';
+  if (sealTime <= '11:30') return 'text-yellow-400';
+  if (sealTime <= '13:00') return 'text-orange-400';
+  return 'text-red-400';
+}
+
+export const SENTIMENT_COLORS: Record<string, string> = {
+  '强共振': 'text-red-400',
+  '可做': 'text-green-400',
+  '谨慎': 'text-yellow-400',
+  '回避': 'text-slate-500',
+};
+
+export async function importFromCSV(file: File): Promise<Record<string, string>[]> {
+  const text = await file.text();
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => { row[h] = values[i] || ''; });
+    return row;
+  });
+}
+
+export function exportToCSV(stocks: Record<string, unknown>[], filename?: string): void {
+  const headers = ['代码', '名称', '封板时间', '开板次数', '市值(亿)', '题材', '连板', '催化', '封单比', '龙虎榜', '日期'];
+  const rows = stocks.map((s: Record<string, unknown>) => [
+    String(s['代码'] ?? s['code'] ?? ''),
+    String(s['名称'] ?? s['name'] ?? ''),
+    String(s['封板时间'] ?? s['sealTime'] ?? ''),
+    String(s['开板次数'] ?? s['openCount'] ?? 0),
+    String(s['市值'] ?? s['marketCap'] ?? 0),
+    String(s['题材'] ?? s['sector'] ?? ''),
+    String(s['连板'] ?? s['boardLevel'] ?? 1),
+    String(s['催化等级'] ?? s['catalystLevel'] ?? 'B'),
+    String(s['封单比'] ?? s['sealAmountRatio'] ?? 0),
+    String(s['龙虎榜'] ?? s['dragonTiger'] ?? false),
+    String(s['日期'] ?? s['timestamp'] ?? ''),
+  ]);
+  const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || `zt_pool_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
