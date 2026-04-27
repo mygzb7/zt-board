@@ -2,6 +2,18 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { ZtStock, MarketScore, MarketMetrics, ReviewRecord, SectorAnalysis } from '../types';
 import { DEFAULT_ZT_POOL } from '../utils/constants';
 
+// 昨日真实市场数据（2026-04-27，用户确认数据）
+const REAL_MARKET_METRICS: MarketMetrics = {
+  totalScore: 14,
+  sentiment: '强共振',
+  positionRatio: 50,
+  ztCount: 84,
+  sealRate: 78, // %
+  boardRate: 35, // %
+  upCount: 3200,
+  turnover: '2.6万亿',
+};
+
 interface AppState {
   ztPool: ZtStock[];
   marketScore: MarketScore;
@@ -99,7 +111,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadFromStorage<ReviewRecord[]>(STORAGE_KEY_REVIEW_RECORDS, [])
   );
 
-  const marketMetrics = calcMarketMetrics(marketScore);
+  // 首次加载显示真实数据（84涨停/2.6万亿），用户可自行调整
+  const marketMetrics = (() => {
+    const saved = localStorage.getItem(STORAGE_KEY_MARKET_SCORE);
+    return saved ? calcMarketMetrics(marketScore) : REAL_MARKET_METRICS;
+  })();
   const sectorAnalysis = calcSectorAnalysis(ztPool);
 
   const setZtPool = (pool: ZtStock[]) => {
