@@ -356,7 +356,6 @@ export const DEFAULT_ZT_POOL: ZtStock[] = [
     changeRate: -0.48,
   },
 ];
-// ============ Utility Functions ============
 
 export function filterZtPool(pool: ZtStock[]): ZtStock[] {
   return pool.filter(s => {
@@ -427,7 +426,7 @@ export function exportToCSV(stocks: Record<string, unknown>[], filename?: string
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename || `zt_pool_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = filename || `zt_pool_\${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

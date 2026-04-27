@@ -112,6 +112,11 @@ def update_typescript_constants(data: list):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--json-only', action='store_true', help='只保存JSON，不更新TypeScript常量')
+    args = parser.parse_args()
+
     print(f"=" * 50)
     print(f"📅 A股涨停数据抓取 - {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"=" * 50)
@@ -123,8 +128,9 @@ def main():
         json_path = os.path.join(PROJECT_ROOT, "data", "zt_pool.json")
         save_to_json(records, json_path)
         
-        # 更新 TypeScript 常量
-        update_typescript_constants(records)
+        # 仅当日志更新（非 --json-only）时更新 TypeScript 常量
+        if not args.json_only:
+            update_typescript_constants(records)
 
         # 统计板块
         sector_map = {}

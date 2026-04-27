@@ -28,8 +28,9 @@ jobs:
       - name: Install deps
         run: pip install akshare pandas
 
+      # 爬虫只保存JSON，不覆盖TypeScript常量（DEFAULT_ZT_POOL是昨日数据）
       - name: Run scraper
-        run: python python_scripts/akshare_zt.py
+        run: python python_scripts/akshare_zt.py --json-only
         env:
           TZ: Asia/Shanghai
 
@@ -37,7 +38,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Install deps and build
         run: npm ci && npm run build
