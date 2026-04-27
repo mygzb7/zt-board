@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install deps
         run: pip install akshare pandas
 
       - name: Run scraper
@@ -37,6 +37,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install deps and build
         run: npm ci && npm run build
