@@ -21,6 +21,12 @@ fi
 # 运行爬虫
 python3 python_scripts/akshare_zt.py
 
+# 数据验证
+python3 scripts/data_validation.py || {
+    echo "🔴 数据验证失败，请检查"
+    exit 1
+}
+
 # 如果有数据变更，提交并推送（触发 GitHub Actions 部署）
 if git diff --quiet data/ src/utils/constants.ts; then
     echo "🟡 数据无变化，跳过提交"
