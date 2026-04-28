@@ -9,9 +9,9 @@ const REAL_MARKET_METRICS: MarketMetrics = {
   sentiment: '谨慎',
   positionRatio: 20,
   ztCount: 60,
-  sealRate: 98, // %（收盘时基本都封板）
+  sealRate: 85, // %（85%首板封死）
   boardRate: 20, // %
-  upCount: 2800,
+  upCount: 1500,
   turnover: '2.54万亿',
 };
 
