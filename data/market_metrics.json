@@ -1,8 +1,8 @@
 {
   "ztCount": 60,
   "totalTurnover": "2.54万亿",
-  "sealRate": 85,
-  "boardRate": 20,
+  "sealRate": 85.0,
+  "boardRate": 20.0,
   "upCount": 1500,
   "shChange": -0.19,
   "szChange": -1.1,

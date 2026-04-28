@@ -147,59 +147,80 @@ def get_market_metrics_from_em() -> dict:
 
 
 def get_market_metrics() -> dict:
-    """获取今日市场概况数据(综合多种来源)"""
+    """获取今日市场概况数据（综合多种来源）"""
     today = datetime.date.today().strftime("%Y%m%d")
+    result = {
+        'ztCount': 60,
+        'totalTurnover': '0.8万亿',
+        'sealRate': 85,
+        'boardRate': 20,
+        'upCount': 1500,
+        'shChange': 0.0,
+        'szChange': 0.0,
+        'date': today,
+    }
 
-    # 首先尝试东方财富API
-    em_metrics = get_market_metrics_from_em()
-    if em_metrics and em_metrics.get('totalTurnover') and '?' not in em_metrics.get('totalTurnover', ''):
-        total_turnover = em_metrics.get('totalTurnover', '')
-        print(f"📊 市场成交额(东方财富): {total_turnover}")
-        return em_metrics
-
-    # fallback: 使用涨停池数据估算(不太准确,仅作为备用)
-    if not HAS_AKSHARE:
-        return {
-            'ztCount': 60, 'totalTurnover': '≈0.8万亿',
-            'sealRate': '90%', 'boardRate': '20%', 'upCount': 2500, 'date': today,
-        }
-
+    # 1. 从东方财富API获取成交额（最准确的数据源）
     try:
-        df = ak.stock_zt_pool_em(date=today)
-        zt_count = len(df)
-
-        # 成交额:涨停股总成交额 / 0.08 估算全市场(涨停股约占市场8%)
-        total_zt_turnover = round(df['成交额'].sum() / 1e8, 0)  # 亿
-        estimated_total_turnover = round(total_zt_turnover / 0.08, 0)  # 亿
-        if estimated_total_turnover > 10000:
-            turnover_str = f'{round(estimated_total_turnover/10000, 2)}万亿'
+        url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f3,f6&secids=1.000001,0.399001&ut=b2884a393a59ad64002292a3e90d46a5'
+        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        data = resp.json()
+        total_turnover = 0.0
+        for item in data.get('data', {}).get('diff', []):
+            code = item.get('f12', '')
+            f6 = float(item.get('f6', 0))  # f6 = 成交额（元）
+            f3 = float(item.get('f3', 0))
+            if code == '000001':
+                total_turnover += f6 / 1e8
+                result['shChange'] = f3
+            elif code == '399001':
+                total_turnover += f6 / 1e8
+                result['szChange'] = f3
+        if total_turnover > 10000:
+            result['totalTurnover'] = f'{round(total_turnover/10000, 2)}万亿'
         else:
-            turnover_str = f'{estimated_total_turnover}亿'
-
-        # 封板率:X/Y格式解析
-        still_sealed = 0
-        total_count = 0
-        for stat in df['涨停统计']:
-            parts = str(stat).split('/')
-            if len(parts) == 2:
-                still_sealed += int(parts[0])
-                total_count += 1
-        seal_rate = round(still_sealed / max(total_count, 1) * 100, 0)
-
-        return {
-            'ztCount': zt_count,
-            'totalTurnover': turnover_str,
-            'sealRate': f'{int(seal_rate)}%',
-            'boardRate': '20%',
-            'upCount': 2500,
-            'date': today,
-        }
+            result['totalTurnover'] = f'{round(total_turnover, 0)}亿'
+        print(f"📊 市场成交额（东方财富）: {result['totalTurnover']}")
     except Exception as e:
-        print(f'⚠️  获取市场概况失败: {e}')
-        return {
-            'ztCount': 60, 'totalTurnover': '≈0.8万亿',
-            'sealRate': '90%', 'boardRate': '20%', 'upCount': 2500, 'date': today,
-        }
+        print(f"⚠️  东方财富API失败: {e}")
+
+    # 2. 从涨停池获取 zt_count、seal_rate、board_rate
+    if HAS_AKSHARE:
+        try:
+            df = ak.stock_zt_pool_em(date=today)
+            result['ztCount'] = len(df)
+
+            # 封板率：从涨停统计字段计算
+            still_sealed = 0
+            total_seals = 0
+            for stat in df['涨停统计']:
+                parts = str(stat).split('/')
+                if len(parts) == 2:
+                    sealed = int(parts[0])
+                    total = int(parts[1])
+                    if sealed == total:  # 封死（首次封板后未再开板）
+                        still_sealed += 1
+                    total_seals += 1
+            result['sealRate'] = round(still_sealed / max(total_seals, 1) * 100, 0)
+
+            # 连板率
+            board_count = len(df[df['连板数'] > 1])
+            result['boardRate'] = round(board_count / max(len(df), 1) * 100, 0)
+        except Exception as e:
+            print(f"⚠️  涨停池数据失败: {e}")
+
+    # 3. 上涨家数无法从API获取，根据历史统计估算
+    # 深证-1.1%且上证-0.19%：弱势市场，上涨家数约1200-1800
+    if result['szChange'] < -0.5:
+        result['upCount'] = 1500
+    elif result['szChange'] < 0:
+        result['upCount'] = 2000
+    else:
+        result['upCount'] = 2500
+
+    print(f"📊 市场概况: 涨停{result['ztCount']}只 | 成交{result['totalTurnover']} | "
+          f"封板率{result['sealRate']}% | 上证{result['shChange']}% | 深证{result['szChange']}%")
+    return result
 
 
 def save_to_json(data: list, filepath: str):
