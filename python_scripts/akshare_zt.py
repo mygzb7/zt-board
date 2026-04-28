@@ -21,6 +21,14 @@ except ImportError:
     print("❌ 请先安装 akshare: pip install akshare pandas")
 
 try:
+    import tushare as ts
+    HAS_TUSHARE = True
+    TUSHARE_TOKEN = os.environ.get('TUSHARE_TOKEN', '8d0f3ef0eb327423c77b277886d8b5a22e65b6c1a1011735a63e7eca')
+except ImportError:
+    HAS_TUSHARE = False
+    print("❌ 请先安装 tushare: pip install tushare --break-system-packages")
+
+try:
     import requests
     HAS_REQUESTS = True
 except ImportError:
@@ -209,14 +217,25 @@ def get_market_metrics() -> dict:
         except Exception as e:
             print(f"⚠️  涨停池数据失败: {e}")
 
-    # 3. 上涨家数无法从API获取，根据历史统计估算
-    # 深证-1.1%且上证-0.19%：弱势市场，上涨家数约1200-1800
-    if result['szChange'] < -0.5:
-        result['upCount'] = 1500
-    elif result['szChange'] < 0:
-        result['upCount'] = 2000
-    else:
-        result['upCount'] = 2500
+    # 3. 上涨家数：用 TuShare pro.daily() 准确计算
+    if HAS_TUSHARE:
+        try:
+            pro = ts.pro_api(TUSHARE_TOKEN)
+            df_daily = pro.daily(trade_date=today)
+            up_count = len(df_daily[df_daily['pct_chg'] > 0])
+            result['upCount'] = up_count
+            print(f"📊 TuShare上涨家数: {up_count}")
+        except Exception as e:
+            print(f"⚠️  TuShare上涨家数失败: {e}")
+    
+    # 如果TuShare失败，用指数变化估算
+    if result['upCount'] == 0 or result['upCount'] == 1500:
+        if result['szChange'] < -0.5:
+            result['upCount'] = 1500
+        elif result['szChange'] < 0:
+            result['upCount'] = 2000
+        else:
+            result['upCount'] = 2500
 
     print(f"📊 市场概况: 涨停{result['ztCount']}只 | 成交{result['totalTurnover']} | "
           f"封板率{result['sealRate']}% | 上证{result['shChange']}% | 深证{result['szChange']}%")

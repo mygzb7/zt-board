@@ -11,7 +11,7 @@ const REAL_MARKET_METRICS: MarketMetrics = {
   ztCount: 60,
   sealRate: 85, // %（85%首板封死）
   boardRate: 20, // %
-  upCount: 1500,
+  upCount: 1698,
   turnover: '2.54万亿',
 };
 
