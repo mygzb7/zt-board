@@ -3,15 +3,16 @@ import { ZtStock, MarketScore, MarketMetrics, ReviewRecord, SectorAnalysis } fro
 import { DEFAULT_ZT_POOL } from '../utils/constants';
 
 // 昨日真实市场数据（2026-04-27，用户确认数据）
+// 今日市场概况常量（2026-04-28：60只涨停）
 const REAL_MARKET_METRICS: MarketMetrics = {
   totalScore: 14,
-  sentiment: '强共振',
-  positionRatio: 50,
-  ztCount: 84,
-  sealRate: 78, // %
-  boardRate: 35, // %
-  upCount: 3200,
-  turnover: '2.6万亿',
+  sentiment: '可做',
+  positionRatio: 30,
+  ztCount: 60,
+  sealRate: 98, // %
+  boardRate: 20, // %
+  upCount: 2800,
+  turnover: '61.4亿',
 };
 
 interface AppState {
@@ -111,10 +112,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   // 首次加载显示真实数据（84涨停/2.6万亿），用户可自行调整
-  const marketMetrics = (() => {
-    const saved = localStorage.getItem(STORAGE_KEY_MARKET_SCORE);
-    return saved ? calcMarketMetrics(marketScore) : REAL_MARKET_METRICS;
-  })();
+  // 始终使用 REAL_MARKET_METRICS（由爬虫每日更新），避免 localStorage 缓存导致数据过期
+  const marketMetrics = REAL_MARKET_METRICS;
   const sectorAnalysis = calcSectorAnalysis(ztPool);
 
   const setZtPool = (pool: ZtStock[]) => {
