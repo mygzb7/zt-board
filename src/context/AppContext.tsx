@@ -101,9 +101,8 @@ function saveToStorage<T>(key: string, value: T) {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [ztPool, setZtPoolState] = useState<ZtStock[]>(() =>
-    loadFromStorage<ZtStock[]>(STORAGE_KEY_ZT_POOL, DEFAULT_ZT_POOL)
-  );
+  // 始终使用 DEFAULT_ZT_POOL（由爬虫每日更新），避免 localStorage 缓存导致数据过期
+  const [ztPool, setZtPoolState] = useState<ZtStock[]>(DEFAULT_ZT_POOL);
   const [marketScore, setMarketScoreState] = useState<MarketScore>(() =>
     loadFromStorage<MarketScore>(STORAGE_KEY_MARKET_SCORE, defaultMarketScore)
   );
