@@ -60,10 +60,11 @@ def get_zt_pool_today() -> list[dict]:
                     continue
                 if code.startswith('300') or code.startswith('301') or code.startswith('688'):
                     continue
-                if not (code.startswith('600') or code.startswith('000') or
+                if not (code.startswith('600') or code.startswith('601') or code.startswith('603') or code.startswith('605') or
+                        code.startswith('000') or
                         code.startswith('001') or code.startswith('002') or
-                        code.startswith('003') or code.startswith('605') or
-                        code.startswith('601')):
+                        code.startswith('003') or
+                        code.startswith('920')):
                     continue
 
                 # first_time 格式: 092500 -> 09:25
@@ -121,10 +122,11 @@ def get_zt_pool_today() -> list[dict]:
                     continue
                 if code.startswith('300') or code.startswith('301') or code.startswith('688'):
                     continue
-                if not (code.startswith('600') or code.startswith('000') or
+                if not (code.startswith('600') or code.startswith('601') or code.startswith('603') or code.startswith('605') or
+                        code.startswith('000') or
                         code.startswith('001') or code.startswith('002') or
-                        code.startswith('003') or code.startswith('605') or
-                        code.startswith('601')):
+                        code.startswith('003') or
+                        code.startswith('920')):
                     continue
 
                 seal_time_raw = row.get('首次封板时间', row.get('封板时间', '09:30'))
@@ -299,13 +301,15 @@ def get_market_metrics() -> dict:
         except Exception as e:
             print(f"⚠️  东方财富API失败: {e}")
 
-    # ===== 2. 涨停统计：优先 TuShare limit_list_d（过滤后仅主板/中小板）=====
+    # ===== 2. 涨停统计：优先 TuShare limit_list_d（全A口径=封死+炸板）=====
     zt_stats_from_tushare = False
     if HAS_TUSHARE:
         try:
             pro = ts.pro_api(TUSHARE_TOKEN)
             df_lim = pro.limit_list_d(trade_date=today)
-            zt_all = df_lim[df_lim['limit'] == 'U'].copy()
+
+            # 全A口径：U(涨停封死) + Z(炸板) = 盘中触及涨停
+            zt_all = df_lim[df_lim['limit'].isin(['U', 'Z'])].copy()
 
             # 过滤：排除ST、创业板300、科创板688，只保留主板/中小板
             def is_main_board(ts_code, name):
@@ -314,31 +318,36 @@ def get_market_metrics() -> dict:
                     return False
                 if code.startswith('300') or code.startswith('301') or code.startswith('688'):
                     return False
-                if not (code.startswith('600') or code.startswith('000') or
+                if not (code.startswith('600') or code.startswith('601') or code.startswith('603') or code.startswith('605') or
+                        code.startswith('000') or
                         code.startswith('001') or code.startswith('002') or
-                        code.startswith('003') or code.startswith('605') or
-                        code.startswith('601')):
+                        code.startswith('003') or
+                        code.startswith('920')):
                     return False
                 return True
 
+            # ztCount = 全A口径（所有U+Z，不过滤），与同花顺一致
+            result['ztCount'] = len(zt_all)
+
+            # 封板率/连板率：只统计主板封死股（用于展示列表质量）
             zt_all['is_main'] = zt_all.apply(lambda r: is_main_board(r['ts_code'], r['name']), axis=1)
-            zt = zt_all[zt_all['is_main'] == True]
+            zt_main = zt_all[zt_all['is_main'] == True]
 
-            result['ztCount'] = len(zt)
+            sealed_df = zt_main[zt_main['limit'] == 'U']
+            still_sealed = len(sealed_df[sealed_df['open_times'] == 0])
+            result['sealRate'] = round(still_sealed / max(len(sealed_df), 1) * 100, 0)
 
-            # 封板率：open_times=0 表示封死未开板
-            still_sealed = len(zt[zt['open_times'] == 0])
-            result['sealRate'] = round(still_sealed / max(len(zt), 1) * 100, 0)
+            board_count = len(sealed_df[sealed_df['limit_times'] > 1])
+            result['boardRate'] = round(board_count / max(len(sealed_df), 1) * 100, 0)
 
-            # 连板率：limit_times > 1
-            board_count = len(zt[zt['limit_times'] > 1])
-            result['boardRate'] = round(board_count / max(len(zt), 1) * 100, 0)
-            print(f"📊 TuShare涨停统计(主板): {len(zt)}只, 封板率{result['sealRate']}%, 连板率{result['boardRate']}%")
+            zb_count = len(zt_all[zt_all['limit'] == 'Z'])
+            print(f"📊 TuShare涨停统计(全A口径): 封死{len(sealed_df)}只 + 炸板{zb_count}只 = 共{len(zt_all)}只")
+            print(f"   主板封死: {len(sealed_df)}只 | 封板率{result['sealRate']}% | 连板率{result['boardRate']}%")
             zt_stats_from_tushare = True
         except Exception as e:
             print(f"⚠️  TuShare涨停统计失败: {e}")
 
-    # fallback: akshare涨停池（同样过滤）
+    # fallback: akshare涨停池（只统计封死的，无法获取炸板数据）
     if not zt_stats_from_tushare and HAS_AKSHARE:
         try:
             df = ak.stock_zt_pool_em(date=today)
@@ -351,16 +360,18 @@ def get_market_metrics() -> dict:
                     return False
                 if code.startswith('300') or code.startswith('301') or code.startswith('688'):
                     return False
-                if not (code.startswith('600') or code.startswith('000') or
+                if not (code.startswith('600') or code.startswith('601') or code.startswith('603') or code.startswith('605') or
+                        code.startswith('000') or
                         code.startswith('001') or code.startswith('002') or
-                        code.startswith('003') or code.startswith('605') or
-                        code.startswith('601')):
+                        code.startswith('003') or
+                        code.startswith('920')):
                     return False
                 return True
 
             df['is_main'] = df.apply(is_main_board_ak, axis=1)
             zt = df[df['is_main'] == True]
 
+            # akshare 只能获取封死涨停，ztCount 也按封死统计（会偏低）
             result['ztCount'] = len(zt)
 
             still_sealed = 0
@@ -378,7 +389,7 @@ def get_market_metrics() -> dict:
 
             board_count = len(zt[zt['连板数'] > 1])
             result['boardRate'] = round(board_count / max(len(zt), 1) * 100, 0)
-            print(f"📊 akshare涨停统计(主板): {len(zt)}只")
+            print(f"📊 akshare涨停统计(主板封死): {len(zt)}只")
         except Exception as e:
             print(f"⚠️  akshare涨停统计失败: {e}")
 
