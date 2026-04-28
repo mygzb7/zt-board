@@ -28,7 +28,7 @@ except ImportError:
 
 
 def get_zt_pool_today() -> list[dict]:
-    """获取今日涨停板数据（主板 + 中小板）"""
+    """获取今日涨停板数据(主板 + 中小板)"""
     if not HAS_AKSHARE:
         return []
 
@@ -37,7 +37,7 @@ def get_zt_pool_today() -> list[dict]:
 
     try:
         df = ak.stock_zt_pool_em(date=today)
-        print(f"📊 抓到 {len(df)} 只涨停股（含所有板块）")
+        print(f"📊 抓到 {len(df)} 只涨停股(含所有板块)")
     except Exception as e:
         print(f"⚠️  获取涨停池失败: {e}")
         return []
@@ -102,11 +102,12 @@ def get_market_metrics_from_em() -> dict:
     """从东方财富API获取市场概况数据"""
     if not HAS_REQUESTS:
         return {}
-    
+
     today = datetime.date.today().strftime("%Y%m%d")
-    
+
     try:
-        url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f3,f8&secids=1.000001,0.399001&ut=b2884a393a59ad64002292a3e90d46a5'
+        # f6字段是成交额（元），直接除以1e8得到成交额（亿）
+        url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f3,f6&secids=1.000001,0.399001&ut=b2884a393a59ad64002292a3e90d46a5'
         resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
         data = resp.json()
         
@@ -115,21 +116,21 @@ def get_market_metrics_from_em() -> dict:
         
         for item in data.get('data', {}).get('diff', []):
             code = item.get('f12', '')
-            f8 = float(item.get('f8', 0))
+            f6 = float(item.get('f6', 0))  # f6 = 成交额（元）
             f3 = float(item.get('f3', 0))
-            
+
             if code == '000001':
-                total_turnover += f8 * 2600  # 上证: f8*2600 ≈ 成交额(亿)
+                total_turnover += f6 / 1e8  # 转换为亿元
                 sh_change = f3
             elif code == '399001':
-                total_turnover += f8 * 1438  # 深证: f8*1438 ≈ 成交额(亿)
+                total_turnover += f6 / 1e8  # 转换为亿元
                 sz_change = f3
         
         if total_turnover > 10000:
             turnover_str = f'{round(total_turnover/10000, 2)}万亿'
         else:
             turnover_str = f'{round(total_turnover, 0)}亿'
-        
+
         return {
             'ztCount': 60,
             'totalTurnover': turnover_str,
@@ -146,36 +147,36 @@ def get_market_metrics_from_em() -> dict:
 
 
 def get_market_metrics() -> dict:
-    """获取今日市场概况数据（综合多种来源）"""
+    """获取今日市场概况数据(综合多种来源)"""
     today = datetime.date.today().strftime("%Y%m%d")
-    
+
     # 首先尝试东方财富API
     em_metrics = get_market_metrics_from_em()
     if em_metrics and em_metrics.get('totalTurnover') and '?' not in em_metrics.get('totalTurnover', ''):
         total_turnover = em_metrics.get('totalTurnover', '')
-        print(f"📊 市场成交额（东方财富）: {total_turnover}")
+        print(f"📊 市场成交额(东方财富): {total_turnover}")
         return em_metrics
-    
-    # fallback: 使用涨停池数据估算（不太准确，仅作为备用）
+
+    # fallback: 使用涨停池数据估算(不太准确,仅作为备用)
     if not HAS_AKSHARE:
         return {
             'ztCount': 60, 'totalTurnover': '≈0.8万亿',
             'sealRate': '90%', 'boardRate': '20%', 'upCount': 2500, 'date': today,
         }
-    
+
     try:
         df = ak.stock_zt_pool_em(date=today)
         zt_count = len(df)
-        
-        # 成交额：涨停股总成交额 / 0.08 估算全市场（涨停股约占市场8%）
+
+        # 成交额:涨停股总成交额 / 0.08 估算全市场(涨停股约占市场8%)
         total_zt_turnover = round(df['成交额'].sum() / 1e8, 0)  # 亿
         estimated_total_turnover = round(total_zt_turnover / 0.08, 0)  # 亿
         if estimated_total_turnover > 10000:
             turnover_str = f'{round(estimated_total_turnover/10000, 2)}万亿'
         else:
             turnover_str = f'{estimated_total_turnover}亿'
-        
-        # 封板率：X/Y格式解析
+
+        # 封板率:X/Y格式解析
         still_sealed = 0
         total_count = 0
         for stat in df['涨停统计']:
@@ -184,7 +185,7 @@ def get_market_metrics() -> dict:
                 still_sealed += int(parts[0])
                 total_count += 1
         seal_rate = round(still_sealed / max(total_count, 1) * 100, 0)
-        
+
         return {
             'ztCount': zt_count,
             'totalTurnover': turnover_str,
@@ -245,7 +246,7 @@ def update_typescript_constants(data: list):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--json-only', action='store_true', help='只保存JSON，不更新TypeScript常量')
+    parser.add_argument('--json-only', action='store_true', help='只保存JSON,不更新TypeScript常量')
     args = parser.parse_args()
 
     print(f"=" * 50)
@@ -276,7 +277,7 @@ def main():
         for sector, count in sorted(sector_map.items(), key=lambda x: -x[1])[:10]:
             print(f"   {sector}: {count}只")
     else:
-        print("⚠️  未获取到数据，请检查网络或日期是否为交易日")
+        print("⚠️  未获取到数据,请检查网络或日期是否为交易日")
 
 
 if __name__ == "__main__":
