@@ -36,73 +36,138 @@ except ImportError:
 
 
 def get_zt_pool_today() -> list[dict]:
-    """获取今日涨停板数据(主板 + 中小板)"""
-    if not HAS_AKSHARE:
-        return []
-
+    """获取今日涨停板数据(主板 + 中小板)，优先用 TuShare"""
     today = datetime.date.today().strftime("%Y%m%d")
     print(f"📅 抓取日期: {today}")
 
-    try:
-        df = ak.stock_zt_pool_em(date=today)
-        print(f"📊 抓到 {len(df)} 只涨停股(含所有板块)")
-    except Exception as e:
-        print(f"⚠️  获取涨停池失败: {e}")
-        return []
-
     records = []
-    for _, row in df.iterrows():
-        code = str(row.get('代码', ''))
-        name = str(row.get('名称', ''))
+    source = ""
 
-        if 'ST' in name or '*ST' in name:
-            continue
-        if code.startswith('300') or code.startswith('301') or code.startswith('688'):
-            continue
-        if not (code.startswith('600') or code.startswith('000') or
-                code.startswith('001') or code.startswith('002') or
-                code.startswith('003') or code.startswith('605') or
-                code.startswith('601')):
-            continue
+    # ===== 首选: TuShare pro.limit_list_d =====
+    if HAS_TUSHARE:
+        try:
+            pro = ts.pro_api(TUSHARE_TOKEN)
+            df_lim = pro.limit_list_d(trade_date=today)
+            zt_df = df_lim[df_lim['limit'] == 'U'].copy()
+            print(f"📊 TuShare抓到 {len(zt_df)} 只涨停股(含所有板块)")
 
-        seal_time_raw = row.get('首次封板时间', row.get('封板时间', '09:30'))
-        seal_time = str(seal_time_raw)[:5] if seal_time_raw and not pd.isna(seal_time_raw) else '09:30'
-        if seal_time == '000000' or seal_time == '':
-            seal_time = '09:30'
+            for _, row in zt_df.iterrows():
+                ts_code = str(row.get('ts_code', ''))
+                code = ts_code.split('.')[0]  # 去掉 .SH/.SZ 后缀
+                name = str(row.get('name', ''))
 
-        open_count_raw = row.get('炸板次数', 0)
-        open_count = int(open_count_raw) if open_count_raw and not pd.isna(open_count_raw) else 0
+                if 'ST' in name or '*ST' in name:
+                    continue
+                if code.startswith('300') or code.startswith('301') or code.startswith('688'):
+                    continue
+                if not (code.startswith('600') or code.startswith('000') or
+                        code.startswith('001') or code.startswith('002') or
+                        code.startswith('003') or code.startswith('605') or
+                        code.startswith('601')):
+                    continue
 
-        mkt_cap_raw = row.get('流通市值', 50)
-        market_cap = round(float(mkt_cap_raw) / 1e8, 1) if mkt_cap_raw and not pd.isna(mkt_cap_raw) else 50.0
+                # first_time 格式: 092500 -> 09:25
+                first_time = str(row.get('first_time', '09:30'))
+                seal_time = first_time[:2] + ':' + first_time[2:4] if len(first_time) >= 4 else '09:30'
+                if seal_time == '00:00' or seal_time == '':
+                    seal_time = '09:30'
 
-        seal_ratio_raw = row.get('封板资金', 0)
-        seal_ratio = round(float(seal_ratio_raw) / 10000, 2) if seal_ratio_raw and not pd.isna(seal_ratio_raw) else 0.0
+                open_count = int(row.get('open_times', 0)) if not pd.isna(row.get('open_times')) else 0
 
-        board_raw = row.get('连板数', 1)
-        board_level = int(board_raw) if board_raw and not pd.isna(board_raw) else 1
+                # float_mv 单位是万元，转为亿元
+                float_mv = float(row.get('float_mv', 50)) if not pd.isna(row.get('float_mv')) else 50.0
+                market_cap = round(float_mv / 10000, 1)
 
-        change_rate_raw = row.get('涨跌幅', 10.0)
-        change_rate = round(float(change_rate_raw), 2) if change_rate_raw and not pd.isna(change_rate_raw) else 10.0
+                # fd_amount 封单资金，单位元，转为万元
+                fd_amount = float(row.get('fd_amount', 0)) if not pd.isna(row.get('fd_amount')) else 0.0
+                seal_ratio = round(fd_amount / 10000, 2)
 
-        dragon_tiger = False
+                board_level = int(row.get('limit_times', 1)) if not pd.isna(row.get('limit_times')) else 1
 
-        records.append({
-            'code': code,
-            'name': name,
-            'sealTime': seal_time,
-            'openCount': open_count,
-            'marketCap': market_cap,
-            'sector': str(row.get('所属行业', '未知')),
-            'boardLevel': board_level,
-            'catalystLevel': 'B',
-            'sealAmountRatio': seal_ratio,
-            'dragonTiger': dragon_tiger,
-            'timestamp': datetime.date.today().strftime("%Y%m%d"),
-            'changeRate': change_rate,
-        })
+                pct_chg = float(row.get('pct_chg', 10.0)) if not pd.isna(row.get('pct_chg')) else 10.0
 
-    print(f"✅ 过滤后剩余 {len(records)} 只主板/中小板涨停股")
+                records.append({
+                    'code': code,
+                    'name': name,
+                    'sealTime': seal_time,
+                    'openCount': open_count,
+                    'marketCap': market_cap,
+                    'sector': str(row.get('industry', '未知')),
+                    'boardLevel': board_level,
+                    'catalystLevel': 'B',
+                    'sealAmountRatio': seal_ratio,
+                    'dragonTiger': False,
+                    'timestamp': today,
+                    'changeRate': round(pct_chg, 2),
+                })
+
+            source = "TuShare"
+            print(f"✅ TuShare过滤后剩余 {len(records)} 只主板/中小板涨停股")
+            return records
+        except Exception as e:
+            print(f"⚠️  TuShare涨停池失败: {e}, 尝试akshare...")
+
+    # ===== fallback: akshare =====
+    if HAS_AKSHARE:
+        try:
+            df = ak.stock_zt_pool_em(date=today)
+            print(f"📊 akshare抓到 {len(df)} 只涨停股(含所有板块)")
+
+            for _, row in df.iterrows():
+                code = str(row.get('代码', ''))
+                name = str(row.get('名称', ''))
+
+                if 'ST' in name or '*ST' in name:
+                    continue
+                if code.startswith('300') or code.startswith('301') or code.startswith('688'):
+                    continue
+                if not (code.startswith('600') or code.startswith('000') or
+                        code.startswith('001') or code.startswith('002') or
+                        code.startswith('003') or code.startswith('605') or
+                        code.startswith('601')):
+                    continue
+
+                seal_time_raw = row.get('首次封板时间', row.get('封板时间', '09:30'))
+                seal_time = str(seal_time_raw)[:5] if seal_time_raw and not pd.isna(seal_time_raw) else '09:30'
+                if seal_time == '000000' or seal_time == '':
+                    seal_time = '09:30'
+
+                open_count_raw = row.get('炸板次数', 0)
+                open_count = int(open_count_raw) if open_count_raw and not pd.isna(open_count_raw) else 0
+
+                mkt_cap_raw = row.get('流通市值', 50)
+                market_cap = round(float(mkt_cap_raw) / 1e8, 1) if mkt_cap_raw and not pd.isna(mkt_cap_raw) else 50.0
+
+                seal_ratio_raw = row.get('封板资金', 0)
+                seal_ratio = round(float(seal_ratio_raw) / 10000, 2) if seal_ratio_raw and not pd.isna(seal_ratio_raw) else 0.0
+
+                board_raw = row.get('连板数', 1)
+                board_level = int(board_raw) if board_raw and not pd.isna(board_raw) else 1
+
+                change_rate_raw = row.get('涨跌幅', 10.0)
+                change_rate = round(float(change_rate_raw), 2) if change_rate_raw and not pd.isna(change_rate_raw) else 10.0
+
+                records.append({
+                    'code': code,
+                    'name': name,
+                    'sealTime': seal_time,
+                    'openCount': open_count,
+                    'marketCap': market_cap,
+                    'sector': str(row.get('所属行业', '未知')),
+                    'boardLevel': board_level,
+                    'catalystLevel': 'B',
+                    'sealAmountRatio': seal_ratio,
+                    'dragonTiger': False,
+                    'timestamp': today,
+                    'changeRate': change_rate,
+                })
+
+            source = "akshare"
+            print(f"✅ akshare过滤后剩余 {len(records)} 只主板/中小板涨停股")
+            return records
+        except Exception as e:
+            print(f"⚠️  akshare涨停池失败: {e}")
+
     return records
 
 
@@ -155,7 +220,7 @@ def get_market_metrics_from_em() -> dict:
 
 
 def get_market_metrics() -> dict:
-    """获取今日市场概况数据（综合多种来源）"""
+    """获取今日市场概况数据（优先 TuShare，fallback akshare/东方财富）"""
     today = datetime.date.today().strftime("%Y%m%d")
     result = {
         'ztCount': 60,
@@ -168,37 +233,106 @@ def get_market_metrics() -> dict:
         'date': today,
     }
 
-    # 1. 从东方财富API获取成交额（最准确的数据源）
-    try:
-        url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f3,f6&secids=1.000001,0.399001&ut=b2884a393a59ad64002292a3e90d46a5'
-        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-        data = resp.json()
-        total_turnover = 0.0
-        for item in data.get('data', {}).get('diff', []):
-            code = item.get('f12', '')
-            f6 = float(item.get('f6', 0))  # f6 = 成交额（元）
-            f3 = float(item.get('f3', 0))
-            if code == '000001':
-                total_turnover += f6 / 1e8
-                result['shChange'] = f3
-            elif code == '399001':
-                total_turnover += f6 / 1e8
-                result['szChange'] = f3
-        if total_turnover > 10000:
-            result['totalTurnover'] = f'{round(total_turnover/10000, 2)}万亿'
-        else:
-            result['totalTurnover'] = f'{round(total_turnover, 0)}亿'
-        print(f"📊 市场成交额（东方财富）: {result['totalTurnover']}")
-    except Exception as e:
-        print(f"⚠️  东方财富API失败: {e}")
+    # ===== 1. 成交额 + 指数涨跌：优先 TuShare index_daily =====
+    turnover_from_tushare = False
+    if HAS_TUSHARE:
+        try:
+            pro = ts.pro_api(TUSHARE_TOKEN)
 
-    # 2. 从涨停池获取 zt_count、seal_rate、board_rate
-    if HAS_AKSHARE:
+            # 指数日线
+            df_sh = pro.index_daily(ts_code='000001.SH', start_date=today, end_date=today)
+            df_sz = pro.index_daily(ts_code='399001.SZ', start_date=today, end_date=today)
+
+            if not df_sh.empty:
+                result['shChange'] = round(float(df_sh.iloc[0]['pct_chg']), 2)
+                # amount 单位验证：上证正常约1.1万亿，深证约1.4万亿
+                sh_amount_raw = float(df_sh.iloc[0]['amount']) if not pd.isna(df_sh.iloc[0]['amount']) else 0
+                # TuShare index_daily amount字段单位可能是元或万元，需要验证
+                # 正常上证成交额约1万亿(1e12元)，如果amount~1e9则单位是万元
+                if sh_amount_raw > 1e11:  # > 1000亿，单位是元
+                    sh_amount = sh_amount_raw / 1e8
+                else:  # 单位是万元
+                    sh_amount = sh_amount_raw / 10000
+            else:
+                sh_amount = 0
+
+            if not df_sz.empty:
+                result['szChange'] = round(float(df_sz.iloc[0]['pct_chg']), 2)
+                sz_amount_raw = float(df_sz.iloc[0]['amount']) if not pd.isna(df_sz.iloc[0]['amount']) else 0
+                if sz_amount_raw > 1e11:
+                    sz_amount = sz_amount_raw / 1e8
+                else:
+                    sz_amount = sz_amount_raw / 10000
+            else:
+                sz_amount = 0
+
+            total_turnover = sh_amount + sz_amount
+            # 验证合理性：正常A股日成交额0.5-3万亿
+            if total_turnover > 50000:  # > 5万亿，数据异常
+                print(f"⚠️  TuShare成交额异常({total_turnover:.0f}亿)，使用东方财富API")
+                raise ValueError(f"TuShare成交额异常: {total_turnover}")
+
+            if total_turnover > 10000:
+                result['totalTurnover'] = f'{round(total_turnover/10000, 2)}万亿'
+            else:
+                result['totalTurnover'] = f'{round(total_turnover, 0)}亿'
+            print(f"📊 TuShare成交额: {result['totalTurnover']}")
+            turnover_from_tushare = True
+        except Exception as e:
+            print(f"⚠️  TuShare指数数据失败: {e}")
+
+    # fallback: 东方财富API获取成交额
+    if not turnover_from_tushare and HAS_REQUESTS:
+        try:
+            url = 'https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f14,f3,f6&secids=1.000001,0.399001&ut=b2884a393a59ad64002292a3e90d46a5'
+            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+            data = resp.json()
+            total_turnover = 0.0
+            for item in data.get('data', {}).get('diff', []):
+                code = item.get('f12', '')
+                f6 = float(item.get('f6', 0))
+                f3 = float(item.get('f3', 0))
+                if code == '000001':
+                    total_turnover += f6 / 1e8
+                    result['shChange'] = f3
+                elif code == '399001':
+                    total_turnover += f6 / 1e8
+                    result['szChange'] = f3
+            if total_turnover > 10000:
+                result['totalTurnover'] = f'{round(total_turnover/10000, 2)}万亿'
+            else:
+                result['totalTurnover'] = f'{round(total_turnover, 0)}亿'
+            print(f"📊 东方财富成交额: {result['totalTurnover']}")
+        except Exception as e:
+            print(f"⚠️  东方财富API失败: {e}")
+
+    # ===== 2. 涨停统计：优先 TuShare limit_list_d =====
+    zt_stats_from_tushare = False
+    if HAS_TUSHARE:
+        try:
+            pro = ts.pro_api(TUSHARE_TOKEN)
+            df_lim = pro.limit_list_d(trade_date=today)
+            zt = df_lim[df_lim['limit'] == 'U']
+            result['ztCount'] = len(zt)
+
+            # 封板率：open_times=0 表示封死未开板
+            still_sealed = len(zt[zt['open_times'] == 0])
+            result['sealRate'] = round(still_sealed / max(len(zt), 1) * 100, 0)
+
+            # 连板率：limit_times > 1
+            board_count = len(zt[zt['limit_times'] > 1])
+            result['boardRate'] = round(board_count / max(len(zt), 1) * 100, 0)
+            print(f"📊 TuShare涨停统计: {len(zt)}只, 封板率{result['sealRate']}%, 连板率{result['boardRate']}%")
+            zt_stats_from_tushare = True
+        except Exception as e:
+            print(f"⚠️  TuShare涨停统计失败: {e}")
+
+    # fallback: akshare涨停池
+    if not zt_stats_from_tushare and HAS_AKSHARE:
         try:
             df = ak.stock_zt_pool_em(date=today)
             result['ztCount'] = len(df)
 
-            # 封板率：从涨停统计字段计算
             still_sealed = 0
             total_seals = 0
             for stat in df['涨停统计']:
@@ -206,18 +340,19 @@ def get_market_metrics() -> dict:
                 if len(parts) == 2:
                     sealed = int(parts[0])
                     total = int(parts[1])
-                    if sealed == total:  # 封死（首次封板后未再开板）
+                    if sealed == total:
                         still_sealed += 1
                     total_seals += 1
             result['sealRate'] = round(still_sealed / max(total_seals, 1) * 100, 0)
 
-            # 连板率
             board_count = len(df[df['连板数'] > 1])
             result['boardRate'] = round(board_count / max(len(df), 1) * 100, 0)
+            print(f"📊 akshare涨停统计: {len(df)}只")
         except Exception as e:
-            print(f"⚠️  涨停池数据失败: {e}")
+            print(f"⚠️  akshare涨停统计失败: {e}")
 
-    # 3. 上涨家数：用 TuShare pro.daily() 准确计算
+    # ===== 3. 上涨家数：优先 TuShare pro.daily() =====
+    up_count_from_tushare = False
     if HAS_TUSHARE:
         try:
             pro = ts.pro_api(TUSHARE_TOKEN)
@@ -225,20 +360,23 @@ def get_market_metrics() -> dict:
             up_count = len(df_daily[df_daily['pct_chg'] > 0])
             result['upCount'] = up_count
             print(f"📊 TuShare上涨家数: {up_count}")
+            up_count_from_tushare = True
         except Exception as e:
             print(f"⚠️  TuShare上涨家数失败: {e}")
-    
-    # 如果TuShare失败，用指数变化估算
-    if result['upCount'] == 0 or result['upCount'] == 1500:
+
+    # fallback: 用指数变化估算
+    if not up_count_from_tushare:
         if result['szChange'] < -0.5:
             result['upCount'] = 1500
         elif result['szChange'] < 0:
             result['upCount'] = 2000
         else:
             result['upCount'] = 2500
+        print(f"📊 估算上涨家数: {result['upCount']}")
 
     print(f"📊 市场概况: 涨停{result['ztCount']}只 | 成交{result['totalTurnover']} | "
-          f"封板率{result['sealRate']}% | 上证{result['shChange']}% | 深证{result['szChange']}%")
+          f"封板率{result['sealRate']}% | 连板率{result['boardRate']}% | "
+          f"上涨{result['upCount']} | 上证{result['shChange']}% | 深证{result['szChange']}%")
     return result
 
 
