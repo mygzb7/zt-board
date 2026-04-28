@@ -254,6 +254,8 @@ export const DEFAULT_ZT_POOL: ZtStock[] = [
     changeRate: 10.0,
   },
 ];
+
+// ===== 工具函数 =====
 export function filterZtPool(pool: ZtStock[]): ZtStock[] {
   return pool.filter(s => {
     if (s.name.includes('ST') || s.name.includes('*ST')) return false;
