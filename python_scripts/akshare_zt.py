@@ -245,30 +245,23 @@ def get_market_metrics() -> dict:
 
             if not df_sh.empty:
                 result['shChange'] = round(float(df_sh.iloc[0]['pct_chg']), 2)
-                # amount 单位验证：上证正常约1.1万亿，深证约1.4万亿
+                # TuShare index_daily amount 单位是 千元 (千分之一元)
+                # 验证: 上证正常约1.1万亿(1.1e12元) → amount约1.1e9
                 sh_amount_raw = float(df_sh.iloc[0]['amount']) if not pd.isna(df_sh.iloc[0]['amount']) else 0
-                # TuShare index_daily amount字段单位可能是元或万元，需要验证
-                # 正常上证成交额约1万亿(1e12元)，如果amount~1e9则单位是万元
-                if sh_amount_raw > 1e11:  # > 1000亿，单位是元
-                    sh_amount = sh_amount_raw / 1e8
-                else:  # 单位是万元
-                    sh_amount = sh_amount_raw / 10000
+                sh_amount = sh_amount_raw * 1000 / 1e8  # 千元→元→亿元
             else:
                 sh_amount = 0
 
             if not df_sz.empty:
                 result['szChange'] = round(float(df_sz.iloc[0]['pct_chg']), 2)
                 sz_amount_raw = float(df_sz.iloc[0]['amount']) if not pd.isna(df_sz.iloc[0]['amount']) else 0
-                if sz_amount_raw > 1e11:
-                    sz_amount = sz_amount_raw / 1e8
-                else:
-                    sz_amount = sz_amount_raw / 10000
+                sz_amount = sz_amount_raw * 1000 / 1e8
             else:
                 sz_amount = 0
 
             total_turnover = sh_amount + sz_amount
-            # 验证合理性：正常A股日成交额0.5-3万亿
-            if total_turnover > 50000:  # > 5万亿，数据异常
+            # 验证合理性：正常A股日成交额0.5-3万亿(5000-30000亿)
+            if total_turnover < 1000 or total_turnover > 50000:
                 print(f"⚠️  TuShare成交额异常({total_turnover:.0f}亿)，使用东方财富API")
                 raise ValueError(f"TuShare成交额异常: {total_turnover}")
 
@@ -306,13 +299,31 @@ def get_market_metrics() -> dict:
         except Exception as e:
             print(f"⚠️  东方财富API失败: {e}")
 
-    # ===== 2. 涨停统计：优先 TuShare limit_list_d =====
+    # ===== 2. 涨停统计：优先 TuShare limit_list_d（过滤后仅主板/中小板）=====
     zt_stats_from_tushare = False
     if HAS_TUSHARE:
         try:
             pro = ts.pro_api(TUSHARE_TOKEN)
             df_lim = pro.limit_list_d(trade_date=today)
-            zt = df_lim[df_lim['limit'] == 'U']
+            zt_all = df_lim[df_lim['limit'] == 'U'].copy()
+
+            # 过滤：排除ST、创业板300、科创板688，只保留主板/中小板
+            def is_main_board(ts_code, name):
+                code = str(ts_code).split('.')[0]
+                if 'ST' in str(name) or '*ST' in str(name):
+                    return False
+                if code.startswith('300') or code.startswith('301') or code.startswith('688'):
+                    return False
+                if not (code.startswith('600') or code.startswith('000') or
+                        code.startswith('001') or code.startswith('002') or
+                        code.startswith('003') or code.startswith('605') or
+                        code.startswith('601')):
+                    return False
+                return True
+
+            zt_all['is_main'] = zt_all.apply(lambda r: is_main_board(r['ts_code'], r['name']), axis=1)
+            zt = zt_all[zt_all['is_main'] == True]
+
             result['ztCount'] = len(zt)
 
             # 封板率：open_times=0 表示封死未开板
@@ -322,20 +333,40 @@ def get_market_metrics() -> dict:
             # 连板率：limit_times > 1
             board_count = len(zt[zt['limit_times'] > 1])
             result['boardRate'] = round(board_count / max(len(zt), 1) * 100, 0)
-            print(f"📊 TuShare涨停统计: {len(zt)}只, 封板率{result['sealRate']}%, 连板率{result['boardRate']}%")
+            print(f"📊 TuShare涨停统计(主板): {len(zt)}只, 封板率{result['sealRate']}%, 连板率{result['boardRate']}%")
             zt_stats_from_tushare = True
         except Exception as e:
             print(f"⚠️  TuShare涨停统计失败: {e}")
 
-    # fallback: akshare涨停池
+    # fallback: akshare涨停池（同样过滤）
     if not zt_stats_from_tushare and HAS_AKSHARE:
         try:
             df = ak.stock_zt_pool_em(date=today)
-            result['ztCount'] = len(df)
+
+            # 过滤：与 get_zt_pool_today() 保持一致
+            def is_main_board_ak(row):
+                code = str(row.get('代码', ''))
+                name = str(row.get('名称', ''))
+                if 'ST' in name or '*ST' in name:
+                    return False
+                if code.startswith('300') or code.startswith('301') or code.startswith('688'):
+                    return False
+                if not (code.startswith('600') or code.startswith('000') or
+                        code.startswith('001') or code.startswith('002') or
+                        code.startswith('003') or code.startswith('605') or
+                        code.startswith('601')):
+                    return False
+                return True
+
+            df['is_main'] = df.apply(is_main_board_ak, axis=1)
+            zt = df[df['is_main'] == True]
+
+            result['ztCount'] = len(zt)
 
             still_sealed = 0
             total_seals = 0
-            for stat in df['涨停统计']:
+            for _, row in zt.iterrows():
+                stat = row.get('涨停统计', '')
                 parts = str(stat).split('/')
                 if len(parts) == 2:
                     sealed = int(parts[0])
@@ -345,9 +376,9 @@ def get_market_metrics() -> dict:
                     total_seals += 1
             result['sealRate'] = round(still_sealed / max(total_seals, 1) * 100, 0)
 
-            board_count = len(df[df['连板数'] > 1])
-            result['boardRate'] = round(board_count / max(len(df), 1) * 100, 0)
-            print(f"📊 akshare涨停统计: {len(df)}只")
+            board_count = len(zt[zt['连板数'] > 1])
+            result['boardRate'] = round(board_count / max(len(zt), 1) * 100, 0)
+            print(f"📊 akshare涨停统计(主板): {len(zt)}只")
         except Exception as e:
             print(f"⚠️  akshare涨停统计失败: {e}")
 
@@ -364,7 +395,24 @@ def get_market_metrics() -> dict:
         except Exception as e:
             print(f"⚠️  TuShare上涨家数失败: {e}")
 
-    # fallback: 用指数变化估算
+    # fallback: 用东方财富 API 获取涨跌家数
+    if not up_count_from_tushare and HAS_REQUESTS:
+        try:
+            # 东方财富涨跌家数API
+            url = 'https://push2.eastmoney.com/api/qt/stock/get?secid=1.000001&fields=f170,f171,f172,f173,f177&ut=b2884a393a59ad64002292a3e90d46a5'
+            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+            data = resp.json()
+            if data.get('data'):
+                # f170=上涨家数, f171=平盘家数, f172=下跌家数
+                up = int(data['data'].get('f170', 0))
+                if up > 0:
+                    result['upCount'] = up
+                    print(f"📊 东方财富上涨家数: {up}")
+                    up_count_from_tushare = True
+        except Exception as e:
+            print(f"⚠️  东方财富上涨家数失败: {e}")
+
+    # 最终 fallback: 用指数变化估算
     if not up_count_from_tushare:
         if result['szChange'] < -0.5:
             result['upCount'] = 1500
