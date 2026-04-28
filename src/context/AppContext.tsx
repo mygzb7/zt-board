@@ -12,7 +12,7 @@ const REAL_MARKET_METRICS: MarketMetrics = {
   sealRate: 98, // %（收盘时基本都封板）
   boardRate: 20, // %
   upCount: 2800,
-  turnover: '0.76万亿',
+  turnover: '2.54万亿',
 };
 
 interface AppState {

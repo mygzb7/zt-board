@@ -1,8 +1,10 @@
 {
   "ztCount": 60,
-  "totalTurnover": "6862.0亿",
-  "sealRate": "198%",
-  "boardRate": "20%",
-  "upCount": 2500,
+  "totalTurnover": "2.54万亿",
+  "sealRate": 98,
+  "boardRate": 20,
+  "upCount": 2800,
+  "shChange": -0.19,
+  "szChange": -1.1,
   "date": "20260428"
 }
