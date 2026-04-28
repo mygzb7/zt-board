@@ -3,16 +3,16 @@ import { ZtStock, MarketScore, MarketMetrics, ReviewRecord, SectorAnalysis } fro
 import { DEFAULT_ZT_POOL } from '../utils/constants';
 
 // 昨日真实市场数据（2026-04-27，用户确认数据）
-// 今日市场概况常量（2026-04-28：60只涨停）
+// 今日市场概况（2026-04-28：上证-0.19% / 深证-1.1%，成交约7550亿）
 const REAL_MARKET_METRICS: MarketMetrics = {
   totalScore: 14,
-  sentiment: '可做',
-  positionRatio: 30,
+  sentiment: '谨慎',
+  positionRatio: 20,
   ztCount: 60,
-  sealRate: 98, // %
+  sealRate: 98, // %（收盘时基本都封板）
   boardRate: 20, // %
   upCount: 2800,
-  turnover: '61.4亿',
+  turnover: '0.76万亿',
 };
 
 interface AppState {
