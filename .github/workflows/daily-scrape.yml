@@ -1,8 +1,9 @@
 name: Daily Stock Data Scraper
 
 on:
-  schedule:
-    - cron: '35 7 * * 1-5'
+  # 禁用定时触发——改为 ArkClaw 实例本地 cron 执行，避免 IP 变动触发 TuShare 限制
+  # schedule:
+  #   - cron: '35 7 * * 1-5'
   workflow_dispatch:
 
 permissions:
@@ -26,7 +27,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install deps
-        run: pip install akshare pandas
+        run: pip install akshare pandas tushare
 
       # 爬虫只保存JSON，不覆盖TypeScript常量（DEFAULT_ZT_POOL是昨日数据）
       - name: Run scraper
